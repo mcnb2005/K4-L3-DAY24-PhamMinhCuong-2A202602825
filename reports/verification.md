@@ -11,13 +11,10 @@
   `lab24-synthetic-token` ở commit `1bdd849`, secret được redact.
 - **Gitleaks current tree:** exit 0, `no leaks found`.
 - **`pre-commit run --all-files`:** `Detect hardcoded secrets — Passed`.
-  Do kết nối trực tiếp tới GitHub timeout trong phiên này, pre-commit dùng
-  mirror cục bộ của manifest `.pre-commit-hooks.yaml`; hook cuối cùng vẫn là
-  `gitleaks-system` và gọi binary Gitleaks 8.30.1 trên các thay đổi đã stage.
+  Pre-commit tải trực tiếp tag `v8.30.1` từ repo Gitleaks chính thức và hook
+  `gitleaks-system` gọi binary Gitleaks 8.30.1.
 - **Before/after:** `attack-before.log` 298 byte chứa POST synthetic;
   `attack-after.log` 0 byte.
 - **Ledger verify:** `True`; dòng cuối là `http_post=deny`, reason
   `restricted data may not cross an egress-enabled boundary`, OBO `dpo`.
-- **Lỗi còn lại:** không có lỗi code/test/scanner. Hạn chế môi trường: GitHub
-  port 443 timeout nên không thể fetch hook repo trực tiếp; khi mạng ổn định,
-  chạy lại `pre-commit run --all-files` không cần mirror để xác nhận đường tải.
+- **Lỗi còn lại:** không có lỗi code, test, scanner hay hook.
