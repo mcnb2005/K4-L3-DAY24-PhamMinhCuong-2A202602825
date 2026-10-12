@@ -34,7 +34,13 @@ không phải xác thực người dùng production.
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+PRINCIPALS_PATH = Path(__file__).resolve().parent.parent / "data" / "principals.json"
 
 
 @dataclass(frozen=True)
@@ -52,4 +58,48 @@ class PolicyContext:
 
 
 def check(context: PolicyContext) -> tuple[bool, str]:
-    raise NotImplementedError("BƯỚC 3b: implement policy check")
+    # The minimum data-egress rule is deliberately evaluated first. It must
+    # remain effective even when an otherwise fully-authorized principal calls.
+    if context.data_classification == "restricted" and context.egress_enabled:
+        return False, "restricted data may not cross an egress-enabled boundary"
+
+    try:
+        principals = json.loads(PRINCIPALS_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False, "trusted principal registry is unavailable"
+
+    principal = principals.get(context.principal_id)
+    if principal is None:
+        return False, f"unknown principal: {context.principal_id or '<empty>'}"
+
+    if not context.requested_tool:
+        return False, "requested tool is missing"
+    if not context.request_purpose:
+        return False, "request purpose is missing"
+    if context.request_purpose not in principal.get("purposes", []):
+        return False, f"purpose {context.request_purpose!r} is not allowed for {context.principal_id}"
+
+    if not context.expires_at:
+        return False, "delegation expiry is missing"
+    try:
+        expires_at = datetime.fromisoformat(context.expires_at.replace("Z", "+00:00"))
+        if expires_at.tzinfo is None:
+            return False, "delegation expiry must include a timezone"
+        if expires_at <= datetime.now(timezone.utc):
+            return False, "delegation has expired"
+    except ValueError:
+        return False, "delegation expiry is not valid ISO-8601"
+
+    effective_tools = set(principal.get("allowed_tools", ())) & set(context.agent_scopes)
+    if context.delegation_depth > 0:
+        effective_tools &= set(context.parent_scopes)
+    if context.requested_tool not in effective_tools:
+        return False, (
+            f"tool {context.requested_tool!r} is outside the effective delegated scope "
+            f"for {context.principal_id}"
+        )
+
+    return True, (
+        f"principal {context.principal_id} may use {context.requested_tool} "
+        f"for purpose {context.request_purpose}"
+    )

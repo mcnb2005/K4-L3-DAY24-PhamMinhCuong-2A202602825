@@ -30,10 +30,60 @@ set ở tests/vn_pii_testset.jsonl):
 """
 from __future__ import annotations
 
+import re
+
+
+_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "EMAIL",
+        re.compile(r"(?<![\w.+-])[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}(?![\w-])", re.I),
+    ),
+    (
+        "VN_CCCD",
+        re.compile(r"\bCCCD\b[^\d]{0,24}(?P<value>\d{12})(?!\d)", re.I),
+    ),
+    (
+        "VN_PHONE",
+        re.compile(
+            r"(?:S(?:Ố|O)\s*ĐIỆN\s*THOẠI|SĐT|SDT)[^\d]{0,32}"
+            r"(?P<value>0\d(?:[ .-]?\d){8,9})(?!\d)",
+            re.I,
+        ),
+    ),
+    (
+        "VN_BANK_ACCOUNT",
+        re.compile(
+            r"(?:STK|S(?:Ố|O)\s*TÀI\s*KHOẢN)[^\d]{0,32}"
+            r"(?P<value>\d(?:[ .-]?\d){7,15})(?!\d)",
+            re.I,
+        ),
+    ),
+)
+
+
+def _span(match: re.Match[str]) -> tuple[int, int]:
+    """Return the captured value span, or the whole match for e-mail."""
+    return match.span("value") if "value" in match.re.groupindex else match.span()
+
 
 def detect(text: str) -> list[dict]:
-    raise NotImplementedError("BƯỚC 3a: implement PII detection")
+    entities: list[dict] = []
+    occupied: list[tuple[int, int]] = []
+
+    for entity_type, pattern in _PATTERNS:
+        for match in pattern.finditer(text):
+            start, end = _span(match)
+            if any(start < old_end and old_start < end for old_start, old_end in occupied):
+                continue
+            entities.append({"type": entity_type, "start": start, "end": end})
+            occupied.append((start, end))
+
+    return sorted(entities, key=lambda entity: (entity["start"], entity["end"]))
 
 
 def redact(text: str) -> str:
-    raise NotImplementedError("BƯỚC 3a: implement PII redaction")
+    redacted = text
+    for entity in reversed(detect(text)):
+        marker = f"[REDACTED_{entity['type']}]"
+        redacted = redacted[: entity["start"]] + marker + redacted[entity["end"] :]
+    return redacted
